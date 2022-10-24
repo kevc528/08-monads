@@ -7,8 +7,8 @@ fulltitle: The Maybe and List Monads
 module Monads where
 
 import Control.Monad (guard)
-import qualified Data.List as List
-import qualified Data.Maybe as Maybe
+import Data.List qualified as List
+import Data.Maybe qualified as Maybe
 import Prelude hiding ((>>))
 
 {-
@@ -29,7 +29,9 @@ in the tree.
 
 -- | zip two trees together
 zipTree :: Tree a -> Tree b -> Tree (a, b)
-zipTree = undefined
+zipTree (Leaf x) (Leaf y) = Leaf (x, y)
+zipTree (Branch a b) (Branch x y) = Branch (zipTree a x) (zipTree b y)
+zipTree _ _ = error "bad structure"
 
 {-
         o                     o                      o
@@ -65,7 +67,9 @@ Let's rewrite it so that the partiality is explicit in the type.
 -}
 
 zipTree1 :: Tree a -> Tree b -> Maybe (Tree (a, b))
-zipTree1 = undefined
+zipTree1 (Leaf x) (Leaf y) = Just $ Leaf (x, y)
+zipTree1 (Branch a b) (Branch x y) = Just $ Branch (zipTree a x) (zipTree b y)
+zipTree1 _ _ = Nothing
 
 {-
 This function is going to be our inspiration for the following development.
@@ -162,7 +166,7 @@ Can you identify any patterns in the code?
 Looking closely for patterns
 ----------------------------
 
-*  We return a value in two places in this function.  See the lines
+\*  We return a value in two places in this function.  See the lines
    marked `(*)` below.
 
 ~~~~~~~~~{.haskell}
@@ -193,7 +197,7 @@ retrn :: a -> Maybe a
 retrn = Just
 
 {-
-* We also *use* a pattern in two cases in the code. In two cases, we
+\* We also *use* a pattern in two cases in the code. In two cases, we
   pattern match the result of a recursive call, and if it is successful,
   we use that successful result later on in the computation. See the
   parts marked `(*)` below.
@@ -334,6 +338,7 @@ zipTree4 (Branch l r) (Branch l' r') =
 zipTree4 _ _ = Nothing
 
 -- >>> testZip zipTree4
+-- True
 
 {-
 What is the benefit to writing the code this way?
@@ -380,7 +385,9 @@ zipTree function using the above `do` notation for the `>>=` operator.
 zipTree5 :: Tree a -> Tree b -> Maybe (Tree (a, b))
 zipTree5 (Leaf a) (Leaf b) = return (Leaf (a, b))
 zipTree5 (Branch l r) (Branch l' r') = do
-  undefined
+  left_merged <- zipTree5 l l'
+  right_merged <- zipTree5 r r'
+  return (Branch left_merged right_merged)
 zipTree5 _ _ = Nothing
 
 -- >>> testZip zipTree5
@@ -534,13 +541,13 @@ right. )
 -}
 
 fmapMonad :: (Monad m) => (a -> b) -> m a -> m b
-fmapMonad = undefined
+fmapMonad f ma = ma >>= (\a -> return $ f a)
 
 pureMonad :: (Monad m) => a -> m a
-pureMonad = undefined
+pureMonad = return
 
 zapMonad :: (Monad m) => m (a -> b) -> m a -> m b
-zapMonad = undefined
+zapMonad mf ma = mf >>= (\f -> ma >>= (\a -> return $ f a))
 
 {-
 Note that `fmapMonad` is called `liftM` and `zapMonad` is called `ap` in the
@@ -582,7 +589,7 @@ should *not* be recursive.
 -- >>> pairs0 [1,2,3] [5,6,7]
 -- [(1,5),(1,6),(1,7),(2,5),(2,6),(2,7),(3,5),(3,6),(3,7)]
 pairs0 :: [a] -> [b] -> [(a, b)]
-pairs0 xs ys = undefined
+pairs0 xs ys = concat $ map (\a -> concat $ map (\b -> [(a, b)]) ys) xs
 
 testPairs :: ([Int] -> [Int] -> [(Int, Int)]) -> Bool
 testPairs ps =
@@ -708,7 +715,7 @@ Rewrite `pairs` using `>>=` and return
 -- >>> pairs2 [1,2,3] [5,6,7]
 -- [(1,5),(1,6),(1,7),(2,5),(2,6),(2,7),(3,5),(3,6),(3,7)]
 pairs2 :: [a] -> [b] -> [(a, b)]
-pairs2 xs ys = undefined
+pairs2 xs ys = xs >>= (\x -> ys >>= (\y -> return (x, y)))
 
 {-
 Rewrite again using do notation
@@ -717,7 +724,10 @@ Rewrite again using do notation
 -- >>> pairs3 [1,2,3] [5,6,7]
 -- [(1,5),(1,6),(1,7),(2,5),(2,6),(2,7),(3,5),(3,6),(3,7)]
 pairs3 :: [a] -> [b] -> [(a, b)]
-pairs3 xs ys = undefined
+pairs3 xs ys = do
+  x <- xs
+  y <- ys
+  return (x, y)
 
 {-
 Make sure that it still works.
@@ -788,7 +798,7 @@ we use the `()` value.
 In fact, there is a formal connection between the `do` notation and
 the comprehension notation.  Both are simply different shorthands for
 repeated use of the `>>=` operator for lists.  Indeed, the language
-*Gofer*, one of the precursors to Haskell, permitted the comprehension
+\*Gofer*, one of the precursors to Haskell, permitted the comprehension
 notation to be used with *any* monad.  For simplicity, Haskell only
 allows comprehension to be used with lists.
 
@@ -797,7 +807,7 @@ other contexts.
 
 What are some other examples that can be written using list comprehension?
 
-* We can find out the smallest number colors that can color a few southern states so that
+\* We can find out the smallest number colors that can color a few southern states so that
   neighboring states are not the same color.
 
 Here are some colors
@@ -832,6 +842,7 @@ And this code finds the smallest list of colors that can do so:
 -}
 
 -- >>> colorsNeeded
+-- Just [Red,Green,Blue]
 colorsNeeded :: Maybe [Color]
 colorsNeeded = List.find (not . null . stateColors) cs
   where
@@ -842,39 +853,47 @@ colorsNeeded = List.find (not . null . stateColors) cs
 Other examples
 --------------
 
-* Rewrite the `map` function using a list comprehension.
+\* Rewrite the `map` function using a list comprehension.
 -}
 
 -- >>> map' (+1) [1,2,3]
+-- [2,3,4]
 map' :: (a -> b) -> [a] -> [b]
-map' f xs = undefined
+map' f xs = [f x | x <- xs]
 
 {-
-* Create a list of all pairs where the first component is from the first list,
+\* Create a list of all pairs where the first component is from the first list,
   the second component is from the second list, and where the first component
   is strictly less than the second.
 -}
 
 -- >>> firstLess [1,2,3] [1,2,3]
+-- [(1,2),(1,3),(2,3)]
 firstLess :: Ord a => [a] -> [a] -> [(a, a)]
-firstLess = undefined
+firstLess xs ys = [(x, y) | x <- xs, y <- ys, x < y]
 
 {-
 Now rewrite `map'` and `firstLess` using do notation (don't forget `guard` above)
 -}
 
 map1 :: (a -> b) -> [a] -> [b]
-map1 = undefined
+map1 f xs = do
+  x <- xs
+  return $ f x
 
 firstLess1 :: Ord a => [a] -> [a] -> [(a, a)]
-firstLess1 xs ys = undefined
+firstLess1 xs ys = do
+  x <- xs
+  y <- ys
+  guard (x < y)
+  return (x, y)
 
 {-
-* Rewrite `filter`, using a guarded list comprehension.
+\* Rewrite `filter`, using a guarded list comprehension.
 -}
 
 filter' :: (a -> Bool) -> [a] -> [a]
-filter' f xs = undefined
+filter' f xs = [x | x <- xs, f x]
 
 {-
 The List Applicative
@@ -898,8 +917,9 @@ at the definition above to see what could makes sense.
 -}
 
 -- >>> pairs6 [1,2,3] [1,2,3]
+-- [(1,1),(1,2),(1,3),(2,1),(2,2),(2,3),(3,1),(3,2),(3,3)]
 pairs6 :: [a] -> [b] -> [(a, b)]
-pairs6 xs ys = undefined
+pairs6 xs ys = pure (,) <*> xs <*> ys
 
 {-
 Once you get `pairs6`, try inlining the definitions of `pure` and `<*>` to see
